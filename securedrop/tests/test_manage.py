@@ -44,7 +44,7 @@ class TestManagePy(object):
         assert 'VISIBLE' in caplog.text
 
 
-class TestPytestManagementCommand(unittest.TestCase):
+class TestPytestManagementCommand:
 
     def test_get_username_success(self):
         with mock.patch("__builtin__.raw_input", return_value='jen'):
@@ -64,6 +64,34 @@ class TestPytestManagementCommand(unittest.TestCase):
         with mock.patch("__builtin__.raw_input", return_value='n'):
             assert not manage._get_yubikey_usage()
 
+    # Note: we use the `journalist_app` fixture because it creates the DB
+    def test_handle_invalid_secret(self, journalist_app, config):
+        """Regression test for bad secret logic in manage.py"""
+
+        patchers = [
+            mock.patch("manage._get_username", return_value='ntoll'),
+            mock.patch("manage._get_yubikey_usage", return_value=True),
+            mock.patch("__builtin__.raw_input", side_effect=YUBIKEY_HOTP),
+            mock.patch("sys.stdout", new_callable=StringIO),
+        ]
+        original_config = manage.config
+
+        try:
+            manage.config = config
+            for patcher in patchers:
+                patcher.start()
+
+            # We will try to provide one invalid and one valid secret
+            return_value = manage._add_user()
+
+            assert return_value == 0
+            assert 'Try again.' in sys.stdout.getvalue()
+            assert 'successfully added' in sys.stdout.getvalue()
+        finally:
+            for patcher in patchers:
+                patcher.stop()
+            manage.config = original_config
+
 
 class TestManagementCommand(unittest.TestCase):
 
@@ -77,20 +105,6 @@ class TestManagementCommand(unittest.TestCase):
         self.__context.push()
         utils.env.teardown()
         self.__context.pop()
-
-    @mock.patch("manage._get_username", return_value='ntoll')
-    @mock.patch("manage._get_yubikey_usage", return_value=True)
-    @mock.patch("__builtin__.raw_input", side_effect=YUBIKEY_HOTP)
-    @mock.patch("sys.stdout", new_callable=StringIO)
-    def test_handle_invalid_secret(self, mock_username, mock_yubikey,
-                                   mock_htop, mock_stdout):
-        """Regression test for bad secret logic in manage.py"""
-
-        # We will try to provide one invalid and one valid secret
-        return_value = manage._add_user()
-        self.assertEqual(return_value, 0)
-        self.assertIn('Try again.', sys.stdout.getvalue())
-        self.assertIn('successfully added', sys.stdout.getvalue())
 
     @mock.patch("manage._get_username", return_value='foo-bar-baz')
     @mock.patch("manage._get_yubikey_usage", return_value=False)
